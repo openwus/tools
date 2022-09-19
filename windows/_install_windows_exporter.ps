@@ -1,0 +1,55 @@
+# Maintain by: haond
+# Last modify: 2022-09-18
+# Note: Install Windows exporter with nssm and custom config
+
+Set-StrictMode -Version latest
+$ErrorActionPreference = "Stop"
+
+# Precheck
+# Check: chocolatey and nssm
+Function Check-CommandExists
+{
+    Param ($command)
+    $oldPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'stop'
+    try {if(Get-Command $command){RETURN $true}}
+    Catch {Write-Host “$command does not exist”; RETURN $false}
+    Finally {$ErrorActionPreference=$oldPreference}
+}
+If (-Not Check-CommandExists choco)
+{
+    Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+}
+If (-Not Check-CommandExists nssm)
+{
+    choco install nssm
+}
+# Done check
+
+# Variable
+$DEVOPS_WORKDIR = 'C:\devops'
+$WE_VERSION = '0.19.0'
+$WE_CONFIG_BASE64 = 'LS0tCiMgTm90ZSB0aGlzIGlzIG5vdCBhbiBleGhhdXN0aXZlIGxpc3Qgb2YgYWxsIGNvbmZpZ3VyYXRpb24gdmFsdWVzCiMgCmNvbGxlY3RvcnM6CiAgZW5hYmxlZDogY3B1LGNzLGxvZ2ljYWxfZGlzayxuZXQsb3Msc2VydmljZSxzeXN0ZW0sdGV4dGZpbGUKY29sbGVjdG9yOgogIHNlcnZpY2U6CiAgICBzZXJ2aWNlcy13aGVyZTogTmFtZT0nd2luZG93c19leHBvcnRlcicKbG9nOgogIGxldmVsOiBlcnJvcgojc2NyYXBlOgojICB0aW1lb3V0LW1hcmdpbjogMC41CnRlbGVtZXRyeToKICBhZGRyOiAiMC4wLjAuMDo5MTgyIgogIHBhdGg6IC9tZXRyaWNzCiAgbWF4LXJlcXVlc3RzOiAxMA=='
+
+# Create devops working dir
+$WE_WORKDIR = $DEVOPS_WORKDIR + '\windows_exporter'
+New-Item -Force -Path $WE_WORKDIR -ItemType Directory
+
+# Download windows exporter
+# https://github.com/prometheus-community/windows_exporter/releases/download/v0.19.0/windows_exporter-0.19.0-amd64.exe
+$WE_URL = 'https://github.com/prometheus-community/windows_exporter/releases/download/v' + $WE_VERSION + '/windows_exporter-' + $WE_VERSION + '-amd64.exe'
+$WE_EXE = $WE_WORKDIR + '\windows_exporter-' + $WE_VERSION + '-amd64.exe'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Invoke-WebRequest -URI $WE_URL -OutFile $WE_EXE
+
+# Write config
+$WE_CONFIG_FILE = $WE_WORKDIR + '\config.yml'
+$WE_CONFIG_STRING = [Convert]::FromBase64String($WE_CONFIG_BASE64)
+[IO.File]::WriteAllBytes($WE_CONFIG_FILE, $WE_CONFIG_STRING)
+
+# Register windows_exporter
+$WE_NSSM_PARA = '--config.file ' + $WE_CONFIG_FILE
+nssm install windows_exporter $WE_EXE
+nssm set windows_exporter AppDirectory $WE_WORKDIR
+nssm set windows_exporter AppParameters $WE_NSSM_PARA
+nssm restart windows_exporter
